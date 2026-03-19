@@ -1,4 +1,5 @@
 from net import Fork, Node, Message
+from typing import override
 
 import random
 
@@ -6,16 +7,17 @@ import random
 class RetryingBalancer(Fork):
     def __init__(self, name: str, max_retries: int = 1):
         super().__init__(name)
-        self.max_retries = max_retries
-        self.outstanding = {}
+        self.max_retries: int = max_retries
+        self.outstanding: dict[int, tuple[Message, int]] = {}
 
-        self.stat = {
+        self.stat: dict[str, int] = {
             'successes': 0,
             'retries': 0,
             'failures': 0,
             'total': 0
         }
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
         if side == "right":
             # Response from a backend
@@ -68,10 +70,10 @@ class RetryingBalancer(Fork):
 class RoundRobinBalancer(Fork):
     def __init__(self, name: str, max_retries: int = 1):
         super().__init__(name)
-        self.max_retries = max_retries
-        self.next_index = 0
-        self.outstanding = {}
-        self.stat = {
+        self.max_retries: int = max_retries
+        self.next_index: int = 0
+        self.outstanding: dict[int, tuple[Message, int]] = {}
+        self.stat: dict[str, int] = {
             'successes': 0,
             'retries': 0,
             'failures': 0,
@@ -94,6 +96,7 @@ class RoundRobinBalancer(Fork):
         self.stat['retries'] += 1
         self.send(target, message)
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
         if side == "right":
             msg_id = message.id

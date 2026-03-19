@@ -12,7 +12,7 @@ class Event:
         return self.timestamp < other.timestamp
 
     def process(self, queue: EventQueue):
-        pass
+        del queue
 
 
 @dataclass

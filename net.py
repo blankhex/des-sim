@@ -1,29 +1,30 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import override
 import des
 import random
 
 
 class Message:
     def __init__(self, id: int):
-        self.id = id
+        self.id: int = id
         self.timestamp: int = 0
         self.type: str = "normal"
 
 
 class Node:
     def __init__(self, name: str):
-        self.name = name
+        self.name: str = name
         self.left: list[Node] = []
         self.right: list[Node] = []
-        self.event_queue: des.EventQueue = None
+        self.event_queue: des.EventQueue | None = None
 
     def connect(self, node: Node):
         if node in self.left or self in node.right:
-            raise Exception(
+            raise Exception((
                 f'Tried to form loop between "{self.name} "'
                 f'and Node "{node.name}"'
-            )
+            ))
 
         if node in self.right or self in node.left:
             raise Exception(
@@ -34,7 +35,7 @@ class Node:
         node.left.append(self)
 
     def on_message(self, node: Node, message: Message, side: str):
-        pass
+        del node, message, side
 
     def verify(self):
         for other in self.right:
@@ -47,10 +48,10 @@ class Node:
 
     def send(self, node: Node, message: Message):
         if node not in self.left and node not in self.right:
-            raise Exception(
+            raise Exception((
                 f'Tried to send message from "{self.name}" to '
                 f'"{node.name}" without link'
-            )
+            ))
 
         direction = "right" if node in self.left else "left"
         node.on_message(self, message, direction)
@@ -63,27 +64,33 @@ class Delay(Node):
         target: Node
         message: Message
 
+        @override
         def process(self, queue: des.EventQueue):
             self.node.send(self.target, self.message)
 
     def __init__(self, name: str, delay: int, jitter: int = 0):
         Node.__init__(self, name)
-        self.delay = delay
-        self.jitter = jitter
+        self.delay: int = delay
+        self.jitter: int = jitter
 
+    @override
     def verify(self):
         if len(self.left) != 1:
             raise Exception(
                 f'Delay node "{self.name}" must have exactly one left node'
             )
         if len(self.right) != 1:
-            raise Exception(
+            raise Exception((
                 f'Delay node "{self.name}" must have exactly one '
                 f"right node"
-            )
+            ))
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         timestamp = des.event_timestamp(
             self.event_queue.timestamp, 0, self.delay
         )
@@ -103,6 +110,7 @@ class Fork(Node):
     def __init__(self, name: str):
         super().__init__(name)
 
+    @override
     def verify(self):
         if len(self.left) != 1:
             raise Exception(
@@ -114,6 +122,7 @@ class Fork(Node):
             )
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
         if side == "right":
             self.send(self.left[0], message)
@@ -128,6 +137,7 @@ class Join(Node):
         super().__init__(name)
         self.origin: dict[int, Node] = {}
 
+    @override
     def verify(self):
         if len(self.left) < 1:
             raise Exception(
@@ -139,6 +149,7 @@ class Join(Node):
             )
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
         if side == "right":
             original_node = self.origin.pop(message.id, None)
@@ -156,6 +167,7 @@ class MMCK(Node):
         node: MMCK
         message: Message
 
+        @override
         def process(self, queue: des.EventQueue):
             self.node._complete_service(self.message)
 
@@ -164,6 +176,7 @@ class MMCK(Node):
         node: MMCK
         message: Message
 
+        @override
         def process(self, queue: des.EventQueue):
             if self.message not in self.node.queue:
                 return
@@ -184,18 +197,19 @@ class MMCK(Node):
         timeout: int | None = None,
     ):
         super().__init__(name)
-        self.service_rate = service_rate
-        self.num_servers = num_servers
-        self.capacity = capacity
-        self.timeout = timeout
+        self.service_rate: float = service_rate
+        self.num_servers: int = num_servers
+        self.capacity: int | None = capacity
+        self.timeout: int | None = timeout
         self.queue: list[Message] = []
         self.in_service: int = 0
-        self.stat = {
+        self.stat: dict[str, int] = {
             "received": 0,
             "dropped": 0,
             "processed": 0,
         }
 
+    @override
     def verify(self):
         if len(self.left) != 1:
             raise Exception(
@@ -207,7 +221,11 @@ class MMCK(Node):
             )
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         if side == "right":
             self.send(self.left[0], message)
             return
@@ -233,6 +251,9 @@ class MMCK(Node):
         self._start_service()
 
     def _start_service(self):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         if not self.queue or self.in_service >= self.num_servers:
             return
 
@@ -254,7 +275,7 @@ class MMCK(Node):
 
 class IdGenerator:
     def __init__(self):
-        self.counter = 0
+        self.counter: int = 0
 
     def next_id(self) -> int:
         current = self.counter
@@ -267,6 +288,7 @@ class Generator(Node):
     class Event(des.Event):
         generator: Generator
 
+        @override
         def process(self, queue: des.EventQueue):
             self.generator.next_message()
             next_timestamp = des.event_timestamp(
@@ -278,37 +300,52 @@ class Generator(Node):
         self, name: str, id_generator: IdGenerator, service_rate: float
     ):
         super().__init__(name)
-        self.id_generator = id_generator
-        self.service_rate = service_rate
-        self.stat: dict = {"generated": 0, "received": 0, "dropped": 0}
+        self.id_generator: IdGenerator = id_generator
+        self.service_rate: float = service_rate
+        self.stat: dict[str, int] = {
+            "generated": 0,
+            "received": 0,
+            "dropped": 0
+        }
         self.timing: list[int] = []
 
     def next_message(self):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         self.stat["generated"] += 1
         message = Message(self.id_generator.next_id())
         message.timestamp = self.event_queue.timestamp
         self.send(self.right[0], message)
 
+    @override
     def verify(self):
         if len(self.left) != 0:
-            raise Exception(
+            raise Exception((
                 f'Generator node "{self.name}" must have exactly zero left '
                 f"nodes"
-            )
+            ))
         if len(self.right) != 1:
-            raise Exception(
+            raise Exception((
                 f'Generator node "{self.name}" must have exactly one right '
                 f"node"
-            )
+            ))
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         self.timing.append(self.event_queue.timestamp - message.timestamp)
         self.stat["received"] += 1
         if message.type != "normal":
             self.stat["dropped"] += 1
 
     def start(self):
+        if not self.event_queue:
+            raise Exception('event_queue was not set')
+
         next_timestamp = self.event_queue.timestamp
         self.event_queue.add_event(Generator.Event(next_timestamp, self))
 
@@ -317,17 +354,19 @@ class Reverse(Node):
     def __init__(self, name: str):
         super().__init__(name)
 
+    @override
     def verify(self):
         if len(self.left) != 1:
             raise Exception(
                 f'Reverse node "{self.name}" must have exactly one left node'
             )
         if len(self.right) != 0:
-            raise Exception(
+            raise Exception((
                 f'Reverse node "{self.name}" must have exactly zero right '
                 f"nodes"
-            )
+            ))
         super().verify()
 
+    @override
     def on_message(self, node: Node, message: Message, side: str):
         self.send(self.left[0], message)
